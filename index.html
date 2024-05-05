@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Text Extraction</title>
+  <!-- Bootstrap CSS -->
+  <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    /* Custom styles */
+    body {
+      background-color: #f0e6fd; /* Light purple background */
+    }
+    .container {
+      margin-top: 50px;
+    }
+    .custom-file-label::after {
+      background-color: #8a63d2; /* Purple Browse button */
+      color: white; /* White text */
+    }
+    .custom-file-label::after:hover {
+      background-color: #5e38a0; /* Darker purple on hover */
+    }
+    #output {
+      margin-top: 20px;
+    }
+    .file-item {
+      margin-bottom: 10px; /* Add vertical space between lines */
+    }
+    .input-box {
+      max-width: 70px; /* Adjust width of input boxes */
+    }
+    
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="custom-file">
+      <input type="file" class="custom-file-input" id="fileInput" accept=".png,.jpg,.jpeg,.pdf" multiple>
+      <label class="custom-file-label" for="fileInput">Choose file</label>
+    </div>
+    <div id="output" class="file-info"></div>
+    <button onclick="GetPages()" class="btn btn-primary mt-3">Extract Text</button>
+  </div>
+
+  <!-- Bootstrap JS -->
+  <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
+  <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/savedmodel-object-detection"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.8.335/pdf.min.js"></script>
+
+  <script>
+    document.getElementById('fileInput').addEventListener('change', function(event) {
+    const files = event.target.files;
+    const outputDiv = document.getElementById('output');
+    outputDiv.innerHTML = ''; // Clear previous content
+    if (files.length > 0) {
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const extension = file.name.split('.').pop().toLowerCase();
+            const listItem = document.createElement('div');
+            listItem.classList.add('row', 'file-item');
+            
+            // Assign the file name directly to the listItem element
+            const fileName = file.name;
+            listItem.dataset.fileName = fileName;
+            
+            listItem.innerHTML = `
+                <div class="col-md-6">${fileName}</div>
+            `;
+            
+             if (extension === 'pdf') {
+                // Generate unique ids for the input elements based on the index
+                const startPageInputId = `start-page-input-${i}`;
+                const endPageInputId = `end-page-input-${i}`;
+
+                listItem.innerHTML += `
+                    <div class="col-md-3"><input type="number" id="${startPageInputId}" class="form-control input-box" placeholder="Start Page"></div>
+                    <div class="col-md-3"><input type="number" id="${endPageInputId}" class="form-control input-box" placeholder="End Page"></div>
+                `;
+             }else
+             {
+                // Generate unique ids for the input elements based on the index
+                const startPageInputId = `start-page-input-${i}`;
+                const endPageInputId = `end-page-input-${i}`;
+
+                listItem.innerHTML += `
+                    <div class="col-md-3" style="display: none;"><input type="number" id="${startPageInputId}" class="form-control input-box" placeholder="Start Page"></div>
+                    <div class="col-md-3" style="display: none;"><input type="number" id="${endPageInputId}" class="form-control input-box" placeholder="End Page"></div>
+                `;
+             }
+            outputDiv.appendChild(listItem);
+        }
+    }
+});
+
+async function GetPages() {
+ 
+
+    // Select all input elements with the class 'input-box'
+    const inputs = document.querySelectorAll('.input-box');
+
+    // Create an object to store input pairs grouped by file name
+    const inputPairs = {};
+
+    // Loop through each input element
+    inputs.forEach((input, index) => {
+        // Get the parent div of the input
+        const parentDiv = input.closest('.file-item');
+
+        // Get the file name from the parent div's dataset
+        const fileName = parentDiv.dataset.fileName;
+      
+        // If the file name is not in the inputPairs object, initialize it as an empty array
+        if (!inputPairs[fileName]) {
+            inputPairs[fileName] = [];
+        }
+
+        // Add the input value to the array associated with the file name
+        inputPairs[fileName].push(input.value);
+
+        // Generate a unique id for the input element
+        const inputId = `${fileName}-input-${index}`;
+        input.setAttribute('id', inputId);
+    });
+
+    for (const fileName in inputPairs) {    
+        const inputValues = inputPairs[fileName];
+        const startPage = inputValues[0]; // Get start page
+        const endPage = inputValues[1]; // Get end page
+        const extension = fileName.split('.').pop().toLowerCase();
+        console.log("file name: ", fileName, "start page: ", startPage, "end page: ", endPage);
+        if (extension === 'pdf') {
+            await Convert(fileName, startPage, endPage);
+        } else {
+            console.log("an image");
+            await Convert(fileName, 0, 0);
+        }   
+     }
+}
+
+async function Convert(fileName, startPage, endPage) {
+      const files = document.getElementById('fileInput').files;
+      const outputDiv = document.getElementById('output');
+      //outputDiv.innerHTML = ''; // Clear previous content
+      for (const file of files) {
+        const extension = file.name.split('.').pop().toLowerCase();
+        if (extension === 'pdf') {
+        const jpgArray = await pdfToJpgArray(file, startPage, endPage);
+          for (const jpg of jpgArray) {
+            const { data: { text } } = await extractTextHelper(jpg);
+            outputDiv.innerHTML += `
+            <div class="pdf-page bg-light p-3 mb-4">
+                <h2 class="text-center mb-3">---------------------------------------</h2>
+                <p class="lead">${text}</p>
+            </div>
+            `;
+          }
+        } else {
+          const { data: { text } } = await extractTextHelper(file);
+          outputDiv.innerHTML += `
+          <div class="pdf-page bg-light p-3 mb-4">
+                <h2 class="text-center mb-3">---------------------------------------</h2>
+                <p class="lead">${text}</p>
+            </div>
+          `;
+        }
+      }
+    }
+
+    async function extractTextHelper(file) {
+      return await Tesseract.recognize(
+        file,
+        'eng',
+        { logger: m => console.log(m) }
+      );
+    }
+
+    async function pdfToJpgArray(pdfFile, startPage, endPage) {
+  try {
+
+   
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.8.335/pdf.worker.min.js';
+
+    const fileReader = new FileReader();
+    fileReader.readAsArrayBuffer(pdfFile);
+
+    const pdfData = await new Promise((resolve, reject) => {
+      fileReader.onload = () => resolve(fileReader.result);
+      fileReader.onerror = error => reject(error);
+    });
+
+    const pdf = await pdfjsLib.getDocument(pdfData).promise;
+    const jpgArray = [];
+
+    if (isNaN(parseInt(startPage)) ) {
+        startPage = 1;
+    }
+    if (isNaN(parseInt(endPage)) ) {
+        endPage = pdf.numPages
+    }
+
+    if(startPage == 0 || startPage > pdf.numPages)
+        startPage = 1;
+    if(endPage > pdf.numPages)
+        endPage = pdf.numPages
+
+    for (let pageNum = startPage; pageNum <= endPage; pageNum++) {
+      const page = await pdf.getPage(parseInt(pageNum));
+      const viewport = page.getViewport({ scale: 1.5 });
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+
+      const renderContext = {
+        canvasContext: context,
+        viewport: viewport
+      };
+      await page.render(renderContext).promise;
+
+      const imgData = canvas.toDataURL('image/jpeg');
+      const img = new Image();
+      img.src = imgData;
+      jpgArray.push(img);
+    }
+
+    return jpgArray;
+  } catch (error) {
+    console.error('Error converting PDF to JPG:', error);
+    return [];
+  }
+}
+
+
+
+    async function getTotalPages(pdfFile) {
+      const pdf = await pdfjsLib.getDocument(pdfFile).promise;
+      return pdf.numPages;
+    }
+  </script>
+</body>
+</html>
